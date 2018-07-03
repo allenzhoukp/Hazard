@@ -1,0 +1,7 @@
+data baseline_date2_lambda;
+set warrant.baseline_date2;
+survival_test=exp(-cumhaz);
+cumlambda=cumhaz/exp(xbeta);
+lagcumlambda=lag(cumlambda);
+lambda=cumlambda-lagcumlambda;
+run;

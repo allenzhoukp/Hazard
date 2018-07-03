@@ -1,0 +1,5 @@
+proc phreg data=warrant.warrant_expand1_2;
+class securitycode date n_1;
+model (begin,end)*start(0)=lag1_return lag2_return D1 D2 lag1_market_ret lag2_market_ret lag1_turnover lag2_turnover lag1_adjfundamental securitycode date n_1/ties=efron rl;
+baseline out=baseline survival=survival cumhaz=cumhaz xbeta=xbeta;
+run;
