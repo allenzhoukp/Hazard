@@ -1,12 +1,19 @@
+/* Last Edited 2018-6-30 RECENT. */
+
+/* Post-process has two parts:
+	one is BASELINE dataset,
+    one is the xls regression result (which is PASTED directly down below.)
+
+	So we can calculate the estimated X'beta value. */
 
 data warrant_expand1_1;
 set warrant.warrant_expand1_1;
 
-xbeta	=	lag1_return	*	0.45585	+					
-		D1	*	0.3487	+					
-		lag1_market_ret	*	0.00103	+					
-		lag1_turnover	*	0.0006246	+					
-		lag1_adjfundamental	*	-3.70307	;					
+xbeta	=	lag1_return	*	0.45585	+
+		D1	*	0.3487	+
+		lag1_market_ret	*	0.00103	+
+		lag1_turnover	*	0.0006246	+
+		lag1_adjfundamental	*	-3.70307	;
 if	securitycode	=	038001	then	xbeta_sec	=	xbeta	+	0.21273	;
 if	securitycode	=	038002	then	xbeta_sec	=	xbeta	+	0.27617	;
 if	securitycode	=	038003	then	xbeta_sec	=	xbeta	+	0.29948	;
@@ -25,8 +32,8 @@ if	securitycode	=	580996	then	xbeta_sec	=	xbeta	+	0.38872	;
 if	securitycode	=	580997	then	xbeta_sec	=	xbeta	+	0.55771	;
 if	securitycode	=	580998	then	xbeta_sec	=	xbeta	+	0.26268	;
 if	securitycode	=	580999	then	xbeta_sec	=	xbeta	+	0	;
-										
-										
+
+
 if	date	=	'28Nov2005'd	then	xbeta_sec_date	=	xbeta_sec	+	1.35918	;
 if	date	=	'29Nov2005'd	then	xbeta_sec_date	=	xbeta_sec	+	-0.13971	;
 if	date	=	'30Nov2005'd	then	xbeta_sec_date	=	xbeta_sec	+	4.44535	;
@@ -643,7 +650,7 @@ if	date	=	'10Jun2008'd	then	xbeta_sec_date	=	xbeta_sec	+	1.01932	;
 if	date	=	'11Jun2008'd	then	xbeta_sec_date	=	xbeta_sec	+	0.92216	;
 if	date	=	'12Jun2008'd	then	xbeta_sec_date	=	xbeta_sec	+	-0.39654	;
 if	date	=	'13Jun2008'd	then	xbeta_sec_date	=	xbeta_sec	+	0	;
-										
+
 if	n_1	=	1	then	xbeta_sec_date	=	xbeta_sec_date	+	-0.46393	;
 if	n_1	=	2	then	xbeta_sec_date	=	xbeta_sec_date	+	-0.71803	;
 if	n_1	=	3	then	xbeta_sec_date	=	xbeta_sec_date	+	-0.96876	;
@@ -1119,7 +1126,7 @@ if	n_1	=	469	then	xbeta_sec_date	=	xbeta_sec_date	+	0	;
 
 run;
 
-
+/* Drop NA (not involved in the regression) */
 data warrant_expand1_1;
 set warrant_expand1_1;
 if n_1=. then delete;
@@ -1128,7 +1135,8 @@ if xbeta=. then delete;
 run;
 
 
-
+/* xbeta_zero is the X'beta
+   when lag1_return and D1 keeps ZERO VALUES */
 
 data warrant_expand1_1;
 set warrant_expand1_1;
@@ -1140,50 +1148,82 @@ D1      *      0.3487
 );
 run;
 
+
+/* baseline dataset plays the role of LAMBDA.  */
+
+/* Copied from date1_lambda 3.19 2017.txt:
+   Preprocess real baseline into lambda:
+   	cumulative lambda = cumhaz / exp(xbeta)
+   	and take a diff.  */
+data baseline_date1_lambda;
+set warrant.baseline_date1;
+survival_test = exp(-cumhaz);
+cumlambda = cumhaz / exp(xbeta);
+lagcumlambda = lag(cumlambda);
+lambda = cumlambda - lagcumlambda;
+run;
+
 proc sql;
-create table prediction_date1 as select distinct a.*,b.lambda as lambda from warrant_expand1_1 a left join baseline_date1_lambda b
-on a.end=b.end;
+create table prediction_date1 as
+	select distinct a.*, b.lambda as lambda
+		from warrant_expand1_1 a left join baseline_date1_lambda b
+			on a.end = b.end;
 quit;
 
+/* NOTE All NA lambdas set to ZERO!
+
+   calc probability. */
 
 data prediction_date1;
-set prediction_date1;
-if lambda=. then lambda=0;
-p=1-exp(-lambda*exp(xbeta_sec_date));
-p_zero=1-exp(-lambda*exp(xbeta_zero));
+	set prediction_date1;
+	if lambda = . then lambda = 0;
+	p = 1 - exp(-lambda * exp(xbeta_sec_date));
+	p_zero = 1 - exp(-lambda * exp(xbeta_zero));
 run;
 
 
+/* Set securitycode as category variable */
+
 data warrant_start;
-set warrant.warrant_start;
+	set warrant.warrant_start;
 run;
 
 data warrant_start;
 set warrant_start;
 format a best12.;
-a=securitycode;
+a = securitycode;
 drop securitycode;
-rename a=securitycode;
+rename a = securitycode;
 run;
 
+/* previous_start_amount:
+   Mean of first transaction's amount of all previous psudocycles
+
+   (So, this should be Q in that formula. Only FIRST transaction of a psudocycle counts.) */
+
 proc sql;
-create table prediction_date1 as select distinct a.*,mean(b.amount) as previous_start_amount from prediction_date1 a left join warrant_start b
-on a.fundacctnum=b.fundacctnum and a.securitycode=b.securitycode and a.psudocycle1>=b.psudocycle
-group by a.fundacctnum,a.securitycode,a.psudocycle1;
+create table prediction_date1 as
+	select distinct a.*, mean(b.amount) as previous_start_amount
+		from prediction_date1 a left join warrant_start b
+			on a.fundacctnum = b.fundacctnum and a.securitycode = b.securitycode and
+			   a.psudocycle1 >= b.psudocycle
+		group by a.fundacctnum, a.securitycode, a.psudocycle1;
 quit;
 
+/* TODO Where is it? */
 proc import out=volume
 datafile='C:\Users\lenovo\Desktop\temp2.dta'
 dbms=dta replace;
 run;
 
-
+/* pre amount = prob * prev_start_amount (p * q) */
 data prediction_date1;
 set prediction_date1;
-pre_amount=p*previous_start_amount;
-pre_zero_amount=p_zero*previous_start_amount;
+pre_amount = p * previous_start_amount;
+pre_zero_amount = p_zero * previous_start_amount;
 run;
 
+/* sum over Fundacctnums */
 proc sql;
 create table use_date1 as select distinct securitycode, date,
 sum(p) as p_num,
@@ -1195,7 +1235,8 @@ group by securitycode, date
 order by securitycode, date;
 run;
 
+/* Get pre amount */
 data use_date1;
 set use_date1;
-diff=pre_amount-pre_zero_amount;
+diff = pre_amount-pre_zero_amount;
 run;
