@@ -39,5 +39,21 @@ model (begin, end) * start(0) =
     other_return other_dummy isOtherReturnPositive
     securitycode date n_1
         / ties=efron rl;
-baseline out = wrregen.baseline_date1 survival = survival cumhaz = cumhaz xbeta = xbeta;
+baseline out = wrregen.baseline_date2 survival = survival cumhaz = cumhaz xbeta = xbeta;
+run;
+
+/* New Investors */
+
+proc phreg data = wrregen.expand_new_adj2;
+class securitycode date n_day;
+model (begin, end) * start(0) =
+    lag1_market_ret mktrp1 mktrp2
+    lag1_turnover turnoverLagWeek turnoverLagMonth
+    lag1_adjfundamental
+    hold_return hold_dummy isHoldReturnPositive
+    last_return last_dummy isLastReturnPositive
+    other_return other_dummy isOtherReturnPositive
+    securitycode date n_day
+        / ties=efron rl;
+baseline out = wrregen.baseline_newinvs survival = survival cumhaz = cumhaz xbeta = xbeta;
 run;
